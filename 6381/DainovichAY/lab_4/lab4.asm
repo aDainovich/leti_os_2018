@@ -1,189 +1,1 @@
-AStack SEGMENT STACK
-	DW 12 DUP(?)
-AStack ENDS
-	
-DATA SEGMENT
-	erroraload	DB	"ERROR: already set",0Dh,0Ah, '$'
-DATA ENDS
-
-CODE SEGMENT
-	ASSUME CS:CODE,DS:DATA,SS:AStack
-ident		DW	0FA94h
-accumulate		DB	0
-oldcs		DW	0 
-oldip		DW	0 
-oldpsp	DW	0	
-unloadid	DB	0
-
-ROUT PROC FAR
-	push ax
-	push bx
-	push dx
-	push cx
-	mov ah,03h
-	mov bh,0
-	int 10h 
-	push dx
-	mov ah,02h
-	mov bh,0
-	mov dh, 20
-	mov dl, 15
-	int 10h 
-
-	inc accumulate
-	mov al,accumulate
-	cmp accumulate,10
-	jne	routne
-	mov	accumulate,0
-
-	routne:	
-	call	printsymb
-	mov ah,02h
-	mov bh,0
-	pop dx
-	int 10h 
-	
-	pop cx
-	pop dx
-	pop bx
-	pop ax
-	MOV AL, 20H
-	OUT 20H,AL
-	IRET
-ROUT ENDP
-
-printsymb	PROC	NEAR
-	add al, 47
-	mov ah,09h 
-	mov bh,0 
-	mov bl, 22
-	mov cx,1 
-	int 10h 
-	ret
-printsymb	ENDP
-
-tailid	PROC NEAR 
-	push dx
-	push cx
-	push si
-	mov dl, es:[82h]
-	cmp dl, '/'
-	jne nounload
-	mov dl, es:[83h]	
-	cmp dl, 'u'
-	jne nounload
-	mov dl, es:[84h]	
-	cmp dl, 'n'
-	jne nounload
-	pop si
-	pop	cx
-	pop dx
-	mov unloadid,0
-	ret
-
-	nounload:
-	pop si
-	pop	cx
-	pop dx
-	mov unloadid,1
-	ret
-tailid ENDP
-
-load	PROC	NEAR
-	push ds
-	mov dx, offset ROUT 
-	mov ax, seg ROUT 
-	mov ds, ax 
-	mov ah, 25h 
-	mov al, 1ch 
-	int 21h 
-	pop ds
-	mov dx, offset END_CODE
-	add dx,100h
-	mov cl,4
-	shr dx,cl
-	inc dx
-	mov ah, 31h
-	int 21h
-	
-	ret
-load	ENDP
-
-unload	PROC	NEAR
-	mov ah, 35h
-	mov al, 1ch 
-	int 21h
-	
-	CLI
-	PUSH DS
-	MOV DX, ES:[oldip]
-	MOV AX, ES:[oldcs]
-	MOV DS, AX
-	MOV AH, 25H
-	MOV AL, 1CH
-	INT 21H
-	POP DS
-	STI
-	
-	mov ax,es:[oldpsp]
-	push ax
-	mov es,ax
-	mov ax,es:[2ch]
-	mov es,ax
-	mov ah,49h		
-	int 21h	
-	pop es		
-	mov ah,49h	
-	int 21h
-	ret
-unload	ENDP
-
-MAIN	PROC FAR
-
-	push DS
-	xor AX,AX
-	push AX
-	mov AX,DATA
-	mov	DS,AX
-
-	push	es
-	mov oldpsp, es 
-	mov ah, 35h
-	mov al, 1ch 
-	int 21h
-	mov oldip, bx 
-	mov oldcs, es 
-	push AX
-	push BX
-	mov AX,ident 
-	mov BX,ES:[ident]
-	cmp AX,BX
-	pop BX
-	pop AX
-	pop ES
-	jnz continue
-	call tailid
-	cmp unloadid,1
-	jz errstr
-	call unload
-	jmp exit
-
-	errstr:	
-	mov DX, offset erroraload
-	mov AH, 09h
-	int 21h
-	jmp exit
-	continue:
-	call load
-exit:	
-	xor AL,AL
-	mov AH,4Ch
-	int 21H
-
-MAIN	ENDP
-DW 20 DUP(?)
-END_CODE:
-CODE ENDS
-END MAIN
-	
-
+code segment	assume cs:code, ds:data, ss:Tstackstart_mem:	PSP dw 0	KEEP_CS dw 0	KEEP_IP dw 0	Counter dw 0	Message db 'Interrupt was called        times$'push_reg macro	push 	ax	push 	bx	push 	cx	push 	dxendmpop_reg macro	pop 	dx	pop 	cx	pop 	bx	pop 	axendmGetCurs	proc near	push 	ax	push 	bx	push 	cx	mov 	ah, 03h	mov 	bh, 0	mov 	bl, 7	int 	10h	pop 	cx	pop 	bx	pop 	ax	retGetCurs	endp	SetCurs	proc near	push 	ax	push 	bx	push	cx	mov 	ah,	02h	mov 	bh,	0	mov 	bl, 07	int 	10h	pop		cx	pop 	bx 	pop 	ax	retSetCurs	endpwrd_to_dec proc near    push 	cx    push 	dx    mov  	cx, 10wloop_bd:       div 	cx    or  	dl, 30h    mov 	[si], dl    dec 	si	xor 	dx, dx    cmp 	ax, 10    jae 	wloop_bd    cmp 	al, 00h    je 		wend_l    or 		al, 30h    mov 	[si], alwend_l:          pop 	dx    pop 	cx    ret   wrd_to_dec endpmy_int proc far	jmp 	body	Int_Tag dw 1234hbody:	push_reg	push 	si	push 	ds		mov 	ax,	seg code	mov 	ds,	ax	inc 	cs:Counter	mov 	si, offset cs:Message	add 	si, 26	push	ax	push	dx	xor		dx,dx	mov		ax,Counter	call	wrd_to_dec	pop		dx	pop		ax	call 	GetCurs	push 	dx	dec 	dh	mov 	dl, 0	call 	SetCurs			push_reg	push 	bp	push 	es	mov 	ax, seg code	mov 	es, ax	mov 	bp, offset es:Message		mov 	cx,	33	mov		ah, 13h	mov		al, 01h	mov		bh, 0	mov		bl, 07h		call 	GetCurs	int 	10h	pop 	es	pop 	bp	pop_reg	pop 	dx		call 	SetCurs	pop 	ds	pop 	si	pop_reg	mov 	al, 20h	out 	20h, al	iretmy_int endpend_mem:old_int_save proc near	push_reg	push 	es	push 	di	mov		ah, 35h	mov		al,	1Ch	int 	21h	mov 	cs:KEEP_IP, bx	mov 	cs:KEEP_CS, es	pop 	di	pop 	es	pop_reg	retold_int_save endpset_new_int proc near	push_reg	push 	ds	mov 	dx, offset my_int	mov 	ax, seg my_int	mov 	ds, ax	mov		ah, 25h	mov		al, 1Ch	int 	21h	pop 	ds	pop_reg	retset_new_int endpload_my_int proc near		mov 	dx, seg code		;add 	dx, (end_mem-start_mem)	add		dx, (start_mem-end_mem)	mov 	cl, 4	shr 	dx, cl ;div 16	inc 	dx	mov 	ah, 31h	int 	21h	retload_my_int endpdelete_my_int proc near	cli	push_reg	push 	ds	push 	es	push 	di	mov		ah,35h	mov		al,1Ch	int 	21h	mov 	ax, es:[2]	mov 	cs:KEEP_CS, ax	mov 	ax, es:[4]	mov 	cs:KEEP_IP, ax	mov 	ax, es:[0]	mov 	cx, ax	mov 	es, ax	mov 	ax, es:[2Ch]	mov 	es, ax	xor 	ax, ax	mov 	ah, 49h	int 	21h	mov 	es, cx	xor 	ax, ax	mov 	ah, 49h	int 	21h	mov 	dx, cs:KEEP_IP	mov 	ax, cs:KEEP_CS	mov 	ds, ax	mov 	ax, 251Ch		int 	21h	pop 	di	pop 	es	pop 	ds	pop_reg	sti	retdelete_my_int endp;вывод строкиprint proc near    push 	ax    push 	dx    mov 	ah, 09h    int 	21h    pop 	dx    pop 	ax    ret   print endpmain proc near	push 	ds	mov 	ax, seg data	mov 	ds, ax	pop 	cs:PSP		mov 	es, cs:PSP	mov 	al, es:[80h]	cmp 	al, 4	jne 	Empty_Tail	mov 	al, byte PTR es:[82h]		cmp 	al, '/'	jne		Empty_Tail	mov 	al, byte PTR es:[83h]	cmp 	al, 'u'	jne		Empty_Tail	mov 	al, byte PTR es:[84h]	cmp 	al, 'n'	jne		Empty_Tail			mov 	IsDelete, 1Empty_Tail:	mov		ah, 35h	mov		al,	1Ch	int 	21h	mov 	ax, es:[bx+3]	cmp 	ax, 1234h	je 		already_inst		cmp 	IsDelete, 1	je 		not_inst		call 	old_int_save	call 	set_new_int	call 	load_my_int		jmp 	exit	already_inst:	cmp 	IsDelete, 1	je 		delete_my_int_main_m	mov		dx, offset Inst_Mess	call	print		jmp 	exit	delete_my_int_main_m:	call 	delete_my_int	jmp 	exit	not_inst:	mov		dx, offset Not_Inst_Mess	call	print		jmp		exit	exit:	xor 	al, al	mov 	ah, 4Ch	int 	21h	retmain endpcode endsdata segment	IsDelete 		db 0	Inst_Mess		db 'Interrupt is already installed!', 10, 13, '$'	Not_Inst_Mess 	db 'Interrupt is not installed!', 10, 13, '$'data endsTstack segment stack	dw 128 dup (?)Tstack endsend main
