@@ -1,299 +1,274 @@
-code segment
-	assume cs:code, ds:data, ss:Tstack
-start_mem:
-	PSP dw 0
-	KEEP_CS dw 0
-	KEEP_IP dw 0
-	Counter dw 0
-	Message db 'Interrupt was called        times$'
+INT_STACK SEGMENT STACK
+	DW 64 DUP (?)
+INT_STACK ENDS
 
-push_reg macro
-	push 	ax
-	push 	bx
-	push 	cx
-	push 	dx
-endm
 
-pop_reg macro
-	pop 	dx
-	pop 	cx
-	pop 	bx
-	pop 	ax
-endm
-
-GetCurs	proc near
-	push 	ax
-	push 	bx
-	push 	cx
-	mov 	ah, 03h
-	mov 	bh, 0
-	mov 	bl, 7
-	int 	10h
-	pop 	cx
-	pop 	bx
-	pop 	ax
+STACK SEGMENT STACK
+	DW 64 DUP (?)
+STACK ENDS
+;---------------------------------------------------------------
+DATA SEGMENT
+	ALR_LOADED DB 'User interruption is already loaded!',0DH,0AH,'$'
+	UNLOADED DB 'User interruption is unloaded!',0DH,0AH,'$'
+	IS_LOADDED DB 'User interruption is loaded!',0DH,0AH,'$'
+DATA ENDS
+;---------------------------------------------------------------
+CODE SEGMENT
+ ASSUME CS:CODE, DS:DATA, ES:DATA, SS:STACK
+START: JMP MAIN
+;---------------------------------------------------------------
+PRINT PROC NEAR ;вывод на экран 
+	push ax
+	mov ah, 09h
+	int 21h
+	pop ax
 	ret
-GetCurs	endp
-	
-SetCurs	proc near
-	push 	ax
-	push 	bx
-	push	cx
-	mov 	ah,	02h
-	mov 	bh,	0
-	mov 	bl, 07
-	int 	10h
-	pop		cx
-	pop 	bx 
-	pop 	ax
+PRINT ENDP
+;---------------------------------------------------------------
+setCurs PROC ;установка позиции курсора; установка на строку 25 делает курсор невидимым
+	push AX
+	push BX
+	push CX
+	mov AH,02h
+	mov BH,00h
+	int 10h ;выполнение
+	pop CX
+	pop BX
+	pop AX
 	ret
-SetCurs	endp
+setCurs ENDP
+;---------------------------------------------------------------
+getCurs PROC ;функция, определяющая позицию и размер курсора 
+	push AX
+	push BX
+	push CX
+	mov AH,03h ;03h читать позицию и размер курсора
+	mov BH,00h ;BH = видео страница
+	int 10h ;выполнение
+	;выход: DH, DL = текущая строка, колонка курсора
+	;CH, CL = текущая начальная, конечная строки курсора
+	pop CX
+	pop BX
+	pop AX
+	ret
+getCurs ENDP
+;---------------------------------------------------------------
+ROUT PROC FAR ;обработчик прерывания
+	jmp ROUT_CODE
+ROUT_DATA:
+	SIGNATURE DB '0000' ;сигнатура, некоторый код, который идентифицирует резидент
+	KEEP_CS DW 0 ;для хранения сегмента
+	KEEP_IP DW 0 ;и смещения прерывания
+	KEEP_PSP DW 0 ;и PSP
+	DELETE DB 0 ;переменная, по которой определяется, надо выгружать прерывание или нет
+	KEEP_SS DW 0
+	KEEP_AX DW 0	
+	KEEP_SP DW 0
+	COUNTER DB 'Total number of interrupts: 0000 $' ;счётчик
+ROUT_CODE:
+	mov KEEP_AX, AX ;сохраняем ax
+	mov KEEP_SS, SS ;сохраняем стек
+	mov KEEP_SP, SP
+	mov AX, seg INT_STACK ;устанавливаем собственный стек
+	mov SS, AX
+	mov SP, 64h
+	mov AX, KEEP_AX
+	push DX ;сохранение изменяемых регистров
+	push DS
+	push ES
+	;обработка прерывания
+	cmp DELETE, 1
+	je ROUT_REC1
+	;установка курсора
+	call getCurs ;получаем текущее положение курсора 
+	push DX ;сохранение положения курсора в стеке
+	mov DH,16h ;DH, DL - строка, колонка (считая от 0) 
+	mov DL,25h
+	call setCurs ;устанавливаем курсор
 
-wrd_to_dec proc near
-    push 	cx
-    push 	dx
-    mov  	cx, 10
-wloop_bd:   
-    div 	cx
-    or  	dl, 30h
-    mov 	[si], dl
-    dec 	si
-	xor 	dx, dx
-    cmp 	ax, 10
-    jae 	wloop_bd
-    cmp 	al, 00h
-    je 		wend_l
-    or 		al, 30h
-    mov 	[si], al
-wend_l:      
-    pop 	dx
-    pop 	cx
-    ret
-   wrd_to_dec endp
+ROUT_CALC:	
+	;подсчёт количества прерываний
+	push SI ;сохранение изменяемых регистров
+	push CX 
+	push DS
+	mov AX,SEG COUNTER
+	mov DS,AX
+	mov SI,offset COUNTER ;для изменения счетчика
+	add SI,1Fh ;смещение на последнюю цифру
+	;(000*) 
+	mov AH,[SI] ;получаем цифру
+	inc AH ;увеличиваем её на 1
+	mov [SI],AH ;возвращаем
+	cmp AH,3Ah ;если не больше 9
+	jne END_CALC ;заканчиваем
+	mov AH,30h ;обнуляем
+	mov [SI],AH ;возвращаем и переходим на следущующую цифру
+	;(00*0) 
+	mov BH,[SI-1] 
+	inc BH 
+	mov [SI-1],BH
+	cmp BH,3Ah                   
+	jne END_CALC 
+	mov BH,30h 
+	mov [SI-1],BH 
+	;(0*00) 
+	mov CH,[SI-2] 
+	inc CH 
+	mov [SI-2],CH 
+	cmp CH,3Ah  
+	jne END_CALC 
+	mov CH,30h 
+	mov [SI-2],CH 
+	;(*000) 
+	mov DH,[SI-3] 
+	inc DH 
+	mov [SI-3],DH
+	cmp DH,3Ah
+	jne END_CALC
+	mov DH,30h
+	mov [SI-3],DH
+ROUT_REC1:
+	cmp DELETE, 1
+	je ROUT_REC
+END_CALC:
+    pop DS
+    pop CX
+	pop SI
+	;вывод счётчика-строки на экран
+	push ES 
+	push BP
+	mov AX,SEG COUNTER
+	mov ES,AX
+	mov AX,offset COUNTER
+	mov BP,AX ;ES:BP = адрес 
+	mov AH,13h ;функция 13h прерывания 10h
+	mov AL,00h ;режим вывода
+	mov CX,20h ;длина строки
+	mov BH,0 ;видео страница
+	int 10h
+	pop BP
+	pop ES
+	
+	;возвращение курсора
+	pop DX
+	call setCurs
+	jmp ROUT_END
 
-my_int proc far
-	jmp 	body
-	Int_Tag dw 1234h
-body:
-	push_reg
-	push 	si
-	push 	ds
-	
-	mov 	ax,	seg code
-	mov 	ds,	ax
-	inc 	cs:Counter
-	mov 	si, offset cs:Message
-	add 	si, 26
-	push	ax
-	push	dx
-	xor		dx,dx
-	mov		ax,Counter
-	call	wrd_to_dec
-	pop		dx
-	pop		ax
-	call 	GetCurs
-	push 	dx
-	dec 	dh
-	mov 	dl, 0
-	call 	SetCurs
-		
-	push_reg
-	push 	bp
-	push 	es
-	mov 	ax, seg code
-	mov 	es, ax
-	mov 	bp, offset es:Message
-	
-	mov 	cx,	33
-	mov		ah, 13h
-	mov		al, 01h
-	mov		bh, 0
-	mov		bl, 07h
-	
-	call 	GetCurs
-	int 	10h
-
-	pop 	es
-	pop 	bp
-	pop_reg
-	pop 	dx
-	
-	call 	SetCurs
-	pop 	ds
-	pop 	si
-	pop_reg
-	mov 	al, 20h
-	out 	20h, al
+	;восстановление вектора прерывания
+ROUT_REC:
+	CLI ;запрещение прерывания
+	mov DX,KEEP_IP
+	mov AX,KEEP_CS
+	mov DS,AX ;DS:DX = вектор прерывания: адрес программы обработки прерывания
+	mov AH,25h 
+	mov AL,1Ch 
+	int 21h ;восстанавливаем вектор
+	;освобождение памяти, занимаемой резидентом
+	mov ES, KEEP_PSP 
+	mov ES, ES:[2Ch] ;ES = сегментный адрес (параграф) освобождаемого блока памяти 
+	mov AH, 49h ;функция 49h прерывания 21h    
+	int 21h ;освобождение распределенного блока памяти
+	mov ES, KEEP_PSP ;ES = сегментный адрес (параграф) освобождаемого блока памяти 
+	mov AH, 49h ;функция 49h прерывания 21h  
+	int 21h	;освобождение распределенного блока памяти
+	STI ;разрешение прерывания
+ROUT_END:
+	pop ES ;восстановление регистров
+	pop DS
+	pop DX
+	mov SS, KEEP_SS
+	mov SP, KEEP_SP
+	mov AX, KEEP_AX
 	iret
-my_int endp
-
-end_mem:
-
-old_int_save proc near
-	push_reg
-	push 	es
-	push 	di
-	mov		ah, 35h
-	mov		al,	1Ch
-	int 	21h
-	mov 	cs:KEEP_IP, bx
-	mov 	cs:KEEP_CS, es
-	pop 	di
-	pop 	es
-	pop_reg
-	ret
-old_int_save endp
-
-set_new_int proc near
-	push_reg
-	push 	ds
-	mov 	dx, offset my_int
-	mov 	ax, seg my_int
-	mov 	ds, ax
-	mov		ah, 25h
-	mov		al, 1Ch
-	int 	21h
-	pop 	ds
-	pop_reg
-	ret
-set_new_int endp
-
-load_my_int proc near	
-	mov 	dx, seg code	
-	;add 	dx, (end_mem-start_mem)
-	add		dx, (start_mem-end_mem)
-	mov 	cl, 4
-	shr 	dx, cl ;div 16
-	inc 	dx
-	mov 	ah, 31h
-	int 	21h
-	ret
-load_my_int endp
-
-delete_my_int proc near
-	cli
-	push_reg
-	push 	ds
-	push 	es
-	push 	di
-	mov		ah,35h
-	mov		al,1Ch
-	int 	21h
-	mov 	ax, es:[2]
-	mov 	cs:KEEP_CS, ax
-	mov 	ax, es:[4]
-	mov 	cs:KEEP_IP, ax
-	mov 	ax, es:[0]
-	mov 	cx, ax
-	mov 	es, ax
-	mov 	ax, es:[2Ch]
-	mov 	es, ax
-	xor 	ax, ax
-	mov 	ah, 49h
-	int 	21h
-	mov 	es, cx
-	xor 	ax, ax
-	mov 	ah, 49h
-	int 	21h
-	mov 	dx, cs:KEEP_IP
-	mov 	ax, cs:KEEP_CS
-	mov 	ds, ax
-	mov 	ax, 251Ch	
-	int 	21h
-	pop 	di
-	pop 	es
-	pop 	ds
-	pop_reg
-	sti
-	ret
-delete_my_int endp
-
-;вывод строки
-print proc near
-    push 	ax
-    push 	dx
-    mov 	ah, 09h
-    int 	21h
-    pop 	dx
-    pop 	ax
-    ret
-   print endp
-
-main proc near
-
-	push 	ds
-	mov 	ax, seg data
-	mov 	ds, ax
-	pop 	cs:PSP
+ROUT ENDP
+;---------------------------------------------------------------
+CHECK_INT PROC ;проверка прерывания
+	;проверка, установлено ли пользовательское прерывание с вектором 1Ch
+	mov AH,35h 
+	mov AL,1Ch 
+	int 21h 
+			
 	
-	mov 	es, cs:PSP
-	mov 	al, es:[80h]
-	cmp 	al, 4
-	jne 	Empty_Tail
-
-	mov 	al, byte PTR es:[82h]	
-	cmp 	al, '/'
-	jne		Empty_Tail
-	mov 	al, byte PTR es:[83h]
-	cmp 	al, 'u'
-	jne		Empty_Tail
-	mov 	al, byte PTR es:[84h]
-	cmp 	al, 'n'
-	jne		Empty_Tail
+	mov SI, offset SIGNATURE 
+	sub SI, offset ROUT 
+	
+	mov AX,'00' ;сравним известное значение сигнатуры
+	cmp AX,ES:[BX+SI] 
+	jne NOT_LOADED 
+	cmp AX,ES:[BX+SI+2] 
+	jne NOT_LOADED 
+	jmp LOADED ;если значения совпадают, то резидент установлен
+	
+NOT_LOADED: ;установка пользовательского прерывания
+	call SET_INT ;процедура установки пользовательского прерывания
+	;вычисление необходимого количества памяти для резидентной программы
+	mov DX,offset LAST_BYTE ;размер в байтах от начала
+	mov CL,4 ;перевод в параграфы
+	shr DX,CL
+	inc DX	;размер в параграфах
+	add DX,CODE ;прибавляем адрес сегмента CODE
+	sub DX,KEEP_PSP ;вычитаем адрес сегмента PSP
+	xor AL,AL
+	mov AH,31h 
+	int 21h ;оставляем нужное количество памяти
+			;(dx - количество параграфов) и выходим в DOS, оставляя программу в памяти резидентно 
 		
-	mov 	IsDelete, 1
-
-Empty_Tail:
-	mov		ah, 35h
-	mov		al,	1Ch
-	int 	21h
-	mov 	ax, es:[bx+3]
-	cmp 	ax, 1234h
-	je 		already_inst
-	
-	cmp 	IsDelete, 1
-	je 		not_inst
-	
-	call 	old_int_save
-	call 	set_new_int
-	call 	load_my_int
-	
-	jmp 	exit
-	
-already_inst:
-	cmp 	IsDelete, 1
-	je 		delete_my_int_main_m
-	mov		dx, offset Inst_Mess
-	call	print	
-	jmp 	exit
-	
-delete_my_int_main_m:
-	call 	delete_my_int
-	jmp 	exit
-	
-not_inst:
-	mov		dx, offset Not_Inst_Mess
-	call	print	
-	jmp		exit
-	
-exit:
-	xor 	al, al
-	mov 	ah, 4Ch
-	int 	21h
+LOADED: ;смотрим, есть ли в хвосте /un , тогда нужно выгружать
+	push ES
+	push AX
+	mov AX,KEEP_PSP 
+	mov ES,AX
+	cmp byte ptr ES:[82h],'/' ;сравниваем аргументы
+	jne NOT_UNLOAD 
+	cmp byte ptr ES:[83h],'u'
+	jne NOT_UNLOAD 
+	cmp byte ptr ES:[84h],'n' 
+	je UNLOAD ;совпадают
+NOT_UNLOAD: ;если не /un
+	pop AX
+	pop ES
+	mov dx,offset ALR_LOADED
+	call PRINT
 	ret
-main endp
-
-code ends
-
-data segment
-	IsDelete 		db 0
-	Inst_Mess		db 'Interrupt is already installed!', 10, 13, '$'
-	Not_Inst_Mess 	db 'Interrupt is not installed!', 10, 13, '$'
-data ends
-
-Tstack segment stack
-	dw 128 dup (?)
-Tstack ends
-
-
-end main
+	;выгрузка пользовательского прерывания
+UNLOAD: ;если /un
+	pop AX
+	pop ES
+	mov byte ptr ES:[BX+SI+10],1 ;DELETE = 1
+	mov dx,offset UNLOADED ;вывод сообщения
+	call PRINT
+	ret
+CHECK_INT ENDP
+;---------------------------------------------------------------
+SET_INT PROC ;установка написанного прерывания в поле векторов прерываний
+	push DX
+	push DS
+	mov AH,35h ;функция получения вектора
+	mov AL,1Ch 
+	int 21h
+	mov KEEP_IP,BX 
+	mov KEEP_CS,ES 
+	mov DX,offset ROUT 
+	mov AX,seg ROUT 
+	mov DS,AX 
+	mov AH,25h 
+	mov AL,1Ch 
+	int 21h ;меняем прерывание
+	pop DS
+	mov DX,offset IS_LOADDED ;вывод сообщения
+	call PRINT
+	pop DX
+	ret
+SET_INT ENDP 
+;---------------------------------------------------------------
+MAIN:
+	mov AX,DATA
+	mov DS,AX
+	mov KEEP_PSP,ES ;сохранение PSP
+	call CHECK_INT ;проверка прерывания
+	xor AL,AL
+	mov AH,4Ch ;выход 
+	int 21H
+LAST_BYTE:
+	CODE ENDS
+	END START
