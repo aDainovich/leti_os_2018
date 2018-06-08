@@ -1,29 +1,10 @@
 INT_STACK SEGMENT STACK
 	DW 64 DUP (?)
 INT_STACK ENDS
-
-
-STACK SEGMENT STACK
-	DW 64 DUP (?)
-STACK ENDS
-;---------------------------------------------------------------
-DATA SEGMENT
-	ALR_LOADED DB 'User interruption is already loaded!',0DH,0AH,'$'
-	UNLOADED DB 'User interruption is unloaded!',0DH,0AH,'$'
-	IS_LOADDED DB 'User interruption is loaded!',0DH,0AH,'$'
-DATA ENDS
 ;---------------------------------------------------------------
 CODE SEGMENT
  ASSUME CS:CODE, DS:DATA, ES:DATA, SS:STACK
 START: JMP MAIN
-;---------------------------------------------------------------
-PRINT PROC NEAR ;вывод на экран 
-	push ax
-	mov ah, 09h
-	int 21h
-	pop ax
-	ret
-PRINT ENDP
 ;---------------------------------------------------------------
 setCurs PROC ;установка позиции курсора; установка на строку 25 делает курсор невидимым
 	push AX
@@ -181,6 +162,15 @@ ROUT_END:
 	mov AX, KEEP_AX
 	iret
 ROUT ENDP
+LAST_BYTE:
+;---------------------------------------------------------------
+PRINT PROC NEAR ;вывод на экран 
+	push ax
+	mov ah, 09h
+	int 21h
+	pop ax
+	ret
+PRINT ENDP
 ;---------------------------------------------------------------
 CHECK_INT PROC ;проверка прерывания
 	;проверка, установлено ли пользовательское прерывание с вектором 1Ch
@@ -269,6 +259,17 @@ MAIN:
 	xor AL,AL
 	mov AH,4Ch ;выход 
 	int 21H
-LAST_BYTE:
 	CODE ENDS
+	
+STACK SEGMENT STACK
+	DW 64 DUP (?)
+STACK ENDS
+;---------------------------------------------------------------
+DATA SEGMENT
+	ALR_LOADED DB 'User interruption is already loaded!',0DH,0AH,'$'
+	UNLOADED DB 'User interruption is unloaded!',0DH,0AH,'$'
+	IS_LOADDED DB 'User interruption is loaded!',0DH,0AH,'$'
+DATA ENDS
 	END START
+	
+	
